@@ -1,16 +1,14 @@
-FROM node:18-alpine
+FROM node:18-bullseye-slim
 
-# Устанавливаем только необходимые зависимости
-RUN apk add --no-cache \
+# Устанавливаем системные зависимости
+RUN apt-get update && apt-get install -y \
     ffmpeg \
-    build-base \
     python3 \
-    py3-pip \
-    libsndfile-dev \
-    fftw-dev
-
-# Устанавливаем aubio через pip с явным указанием версии
-RUN pip3 install numpy aubio==0.4.9
+    python3-pip \
+    libsndfile1 \
+    libfftw3-3 \
+    && pip3 install --no-cache-dir numpy aubio \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY package*.json ./
