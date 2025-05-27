@@ -23,7 +23,7 @@ let nameMainAudioFileId = null;
 
 let similarityPercentage = null;
 
-ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH || 'ffmpeg');
+ffmpeg.setFfmpegPath('ffmpeg');
 
 async function downloadAndConvertVoice(ctx, fileId, outputPath) {
   const tempPath = `temp_${Date.now()}.ogg`;
