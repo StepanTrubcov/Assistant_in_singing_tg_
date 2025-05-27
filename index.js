@@ -5,8 +5,8 @@ import fs from 'fs';
 import { execSync } from 'child_process';
 
 // const token = '7786183810:AAF5GXNyUBCge7oWvPdTJ_mluhiMs_EI1GE'
-const bot = new Telegraf(token)
 const token = process.env.TOKEN;
+const bot = new Telegraf(token)
 const MAIN_USER_ID = parseInt(process.env.MAIN_USER_ID);
 const users = JSON.parse(process.env.USERS || '[]');
 
