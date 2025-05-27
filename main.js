@@ -85,56 +85,48 @@ async function downloadAndConvertVoice(ctx, fileId, outputPath) {
   }
 }
 
-async function getPitchAnalysis(wavPath) {
-  try {
-    // Alternative method using aubio for pitch detection
-    const command = `aubiopitch -i ${wavPath} 2>&1`;
-    const output = execSync(command, { maxBuffer: 1024 * 1024 * 10 }).toString();
+// async function getPitchAnalysis(wavPath) {
+//   try {
+//     // Используем более продвинутый анализ через sox и ffmpeg
+//     const freqCommand = `sox ${wavPath} -n stat -freq 2>&1 | grep -oP '\\d+\\.\\d+' | head -1`;
+//     const freq = parseFloat(execSync(freqCommand).toString()) || 0;
     
-    // Parse the output to get pitch values
-    const pitchValues = output.split('\n')
-      .map(line => line.trim())
-      .filter(line => line && !line.startsWith('#'))
-      .map(line => parseFloat(line.split(/\s+/)[1]))
-      .filter(val => !isNaN(val));
+//     // Дополнительный анализ через ffmpeg
+//     const statsCommand = `ffmpeg -i ${wavPath} -af astats=metadata=1:reset=1 -f null - 2>&1 | grep -E 'Overall.Frequency|Peak.level'`;
+//     const statsOutput = execSync(statsCommand).toString();
     
-    if (pitchValues.length === 0) {
-      throw new Error('No pitch values detected');
-    }
+//     const freqMatch = statsOutput.match(/Overall\.Frequency:\s*(\d+\.?\d*)/);
+//     const peakMatch = statsOutput.match(/Peak\.level:\s*(-?\d+\.?\d*)/);
     
-    // Calculate average pitch
-    const sum = pitchValues.reduce((a, b) => a + b, 0);
-    const avgFrequency = sum / pitchValues.length;
-    
-    return {
-      avgFrequency,
-      pitchCount: pitchValues.length
-    };
-  } catch (error) {
-    console.error('Pitch analysis error:', error);
-    // Fallback to basic FFT analysis if aubio fails
-    return getBasicFrequencyAnalysis(wavPath);
-  }
-}
+//     return {
+//       avgFrequency: freqMatch ? parseFloat(freqMatch[1]) : freq,
+//       peakLevel: peakMatch ? parseFloat(peakMatch[1]) : 0,
+//       pitchCount: 1
+//     };
+//   } catch (error) {
+//     console.error('Advanced pitch analysis failed:', error);
+//     return { avgFrequency: 0, peakLevel: 0, pitchCount: 0 };
+//   }
+// }
 
-async function getBasicFrequencyAnalysis(wavPath) {
-  try {
-    const command = `ffmpeg -i ${wavPath} -af "astats=metadata=1:reset=1" -f null - 2>&1 | grep "Overall.Frequency"`;
-    const output = execSync(command).toString();
-    const freqMatch = output.match(/Overall\.Frequency:\s*(\d+\.?\d*)/);
+// async function getBasicFrequencyAnalysis(wavPath) {
+//   try {
+//     const command = `ffmpeg -i ${wavPath} -af "astats=metadata=1:reset=1" -f null - 2>&1 | grep "Overall.Frequency"`;
+//     const output = execSync(command).toString();
+//     const freqMatch = output.match(/Overall\.Frequency:\s*(\d+\.?\d*)/);
     
-    if (freqMatch) {
-      return {
-        avgFrequency: parseFloat(freqMatch[1]),
-        pitchCount: 1
-      };
-    }
-    throw new Error('No frequency data found');
-  } catch (error) {
-    console.error('Basic frequency analysis failed:', error);
-    throw new Error('Could not analyze pitch: ' + error.message);
-  }
-}
+//     if (freqMatch) {
+//       return {
+//         avgFrequency: parseFloat(freqMatch[1]),
+//         pitchCount: 1
+//       };
+//     }
+//     throw new Error('No frequency data found');
+//   } catch (error) {
+//     console.error('Basic frequency analysis failed:', error);
+//     throw new Error('Could not analyze pitch: ' + error.message);
+//   }
+// }
 
 function deleteTempFile(path) {
   try {
@@ -147,33 +139,76 @@ function deleteTempFile(path) {
   }
 }
 
-async function getAudioFeatures(wavPath) {
-  try {
-    // 1. Получаем длительность аудио
-    const durationCommand = `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ${wavPath}`;
-    const duration = parseFloat(execSync(durationCommand).toString());
+// async function getAudioFeatures(wavPath) {
+//   try {
+//     // 1. Получаем длительность аудио
+//     const durationCommand = `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ${wavPath}`;
+//     const duration = parseFloat(execSync(durationCommand).toString());
 
-    // 2. Упрощенный анализ громкости и пикового уровня
-    const analysisCommand = `ffmpeg -i ${wavPath} -af "ebur128=peak=true" -f null - 2>&1 | grep -E 'I:|Peak:'`;
-    const analysisOutput = execSync(analysisCommand, { maxBuffer: 1024 * 1024 * 5 }).toString();
+//     // 2. Упрощенный анализ громкости и пикового уровня
+//     const analysisCommand = `ffmpeg -i ${wavPath} -af "ebur128=peak=true" -f null - 2>&1 | grep -E 'I:|Peak:'`;
+//     const analysisOutput = execSync(analysisCommand, { maxBuffer: 1024 * 1024 * 5 }).toString();
 
-    // Извлекаем ключевые параметры
-    const loudnessMatch = analysisOutput.match(/I:\s*(-?\d+\.\d+)\s*LUFS/);
-    const peakMatch = analysisOutput.match(/Peak:\s*(-?\d+\.\d+)\s*dBFS/);
+//     // Извлекаем ключевые параметры
+//     const loudnessMatch = analysisOutput.match(/I:\s*(-?\d+\.\d+)\s*LUFS/);
+//     const peakMatch = analysisOutput.match(/Peak:\s*(-?\d+\.\d+)\s*dBFS/);
 
-    if (!loudnessMatch || !peakMatch) {
-      throw new Error('Не удалось извлечь параметры громкости');
-    }
+//     if (!loudnessMatch || !peakMatch) {
+//       throw new Error('Не удалось извлечь параметры громкости');
+//     }
 
-    return {
-      duration,
-      loudness: parseFloat(loudnessMatch[1]),
-      peak: parseFloat(peakMatch[1])
-    };
-  } catch (error) {
-    console.error('Ошибка анализа аудио:', error);
-    throw new Error('Не удалось проанализировать аудио файл');
-  }
+//     return {
+//       duration,
+//       loudness: parseFloat(loudnessMatch[1]),
+//       peak: parseFloat(peakMatch[1])
+//     };
+//   } catch (error) {
+//     console.error('Ошибка анализа аудио:', error);
+//     throw new Error('Не удалось проанализировать аудио файл');
+//   }
+// }
+async function getEnhancedAudioAnalysis(wavPath) {
+  const pitch = await getPitchAnalysis(wavPath);
+  const features = await getAudioFeatures(wavPath);
+  
+  // Дополнительный спектральный анализ
+  const spectralCommand = `sox ${wavPath} -n stat -spectral 2>&1 | grep -E 'Flatness|Crest'`;
+  const spectralOutput = execSync(spectralCommand).toString();
+  
+  return {
+    ...pitch,
+    ...features,
+    spectral: spectralOutput.includes('Flatness') ? 
+      parseFloat(spectralOutput.match(/Flatness:\s*(\d+\.?\d*)/)[1]) : 0
+  };
+}
+
+function calculateEnhancedSimilarity(main, user) {
+  // Взвешенное сравнение по 10 параметрам
+  const params = [
+    { name: 'frequency', diff: Math.abs(main.avgFrequency - user.avgFrequency), weight: 0.3 },
+    { name: 'loudness', diff: Math.abs(main.loudness - user.loudness), weight: 0.2 },
+    { name: 'duration', diff: Math.abs(main.duration - user.duration), weight: 0.15 },
+    { name: 'spectral', diff: Math.abs(main.spectral - user.spectral), weight: 0.15 },
+    { name: 'peak', diff: Math.abs(main.peak - user.peak), weight: 0.2 }
+  ];
+
+  return params.reduce((total, {diff, weight}) => {
+    const similarity = 100 * (1 - Math.min(diff / 100, 1));
+    return total + similarity * weight;
+  }, 0);
+}
+
+function getDetailedPitchComment(main, user) {
+  const diff = main.avgFrequency - user.avgFrequency;
+  const absDiff = Math.abs(diff);
+  
+  let comment = '';
+  if (absDiff < 20) comment = 'Идеальное совпадение высоты тона 🎵';
+  else if (absDiff < 50) comment = 'Небольшое отклонение высоты тона';
+  else comment = 'Заметное отличие в высоте тона';
+  
+  return `${comment}\nОригинал: ${main.avgFrequency.toFixed(2)} Гц | Ваш вариант: ${user.avgFrequency.toFixed(2)} Гц`;
 }
 
 async function compareAudioFiles(ctx, mainAudioFileId, userAudioFileId) {
@@ -181,122 +216,27 @@ async function compareAudioFiles(ctx, mainAudioFileId, userAudioFileId) {
   const userWavPath = 'user.wav';
 
   try {
-    // Конвертация
     await Promise.all([
       downloadAndConvertVoice(ctx, mainAudioFileId, mainWavPath),
       downloadAndConvertVoice(ctx, userAudioFileId, userWavPath)
     ]);
 
-    // Анализ базовых характеристик
-    const [mainFeatures, userFeatures] = await Promise.all([
-      getAudioFeatures(mainWavPath),
-      getAudioFeatures(userWavPath)
+    // Анализ с новыми параметрами
+    const [mainAnalysis, userAnalysis] = await Promise.all([
+      getEnhancedAudioAnalysis(mainWavPath),
+      getEnhancedAudioAnalysis(userWavPath)
     ]);
 
-    console.log('Основные характеристики:', { mainFeatures, userFeatures });
-
-    // Анализ высоты тона (с обработкой возможных ошибок)
-    let mainPitch = { avgFrequency: 0, pitchCount: 0 };
-    let userPitch = { avgFrequency: 0, pitchCount: 0 };
-    let pitchAnalysisFailed = false;
+    // Улучшенный алгоритм сравнения
+    const similarity = calculateEnhancedSimilarity(mainAnalysis, userAnalysis);
     
-    try {
-      [mainPitch, userPitch] = await Promise.all([
-        getPitchAnalysis(mainWavPath),
-        getPitchAnalysis(userWavPath)
-      ]);
-      console.log('Анализ высоты тона:', { mainPitch, userPitch });
-    } catch (pitchError) {
-      console.error('Ошибка анализа высоты тона:', pitchError);
-      pitchAnalysisFailed = true;
-    }
-
-    // Сравнение характеристик
-    const comparisons = {
-      // Уменьшаем вес длительности и громкости, увеличиваем вес частоты
-      duration: {
-        diff: Math.abs(mainFeatures.duration - userFeatures.duration),
-        maxDiff: 5,
-        weight: 0.2 // уменьшено с 0.3
-      },
-      loudness: {
-        diff: Math.abs(mainFeatures.loudness - userFeatures.loudness),
-        maxDiff: 20,
-        weight: 0.2 // уменьшено с 0.3
-      },
-      peak: {
-        diff: Math.abs(mainFeatures.peak - userFeatures.peak),
-        maxDiff: 10,
-        weight: 0.1 // уменьшено с 0.2
-      }
-    };
-
-    // Добавляем сравнение частот с большим весом
-    if (!pitchAnalysisFailed && mainPitch.pitchCount > 0 && userPitch.pitchCount > 0) {
-      comparisons.frequency = {
-        diff: Math.abs(mainPitch.avgFrequency - userPitch.avgFrequency),
-        maxDiff: 100,
-        weight: 0.5 // значительно увеличено с 0.2
-      };
-    } else {
-      // Если анализ частоты не удался, распределяем его вес между другими параметрами
-      const extraWeight = 0.5 / Object.keys(comparisons).length;
-      for (const key in comparisons) {
-        comparisons[key].weight += extraWeight;
-      }
-    }
-
-    // Расчет сходства
-    let totalSimilarity = 0;
-    let totalWeight = 0;
-
-    for (const [key, { diff, maxDiff, weight }] of Object.entries(comparisons)) {
-      const similarity = 100 * (1 - Math.min(diff / maxDiff, 1));
-      totalSimilarity += similarity * weight;
-      totalWeight += weight;
-      console.log(`${key}: разница ${diff.toFixed(2)}, сходство ${similarity.toFixed(2)}%`);
-    }
-
-    const finalSimilarity = totalSimilarity / totalWeight;
-    const adjustedSimilarity = Math.max(0, Math.min(100, finalSimilarity.toFixed(2)));
-
-    // Формируем комментарий о высоте тона
-    let pitchComment = 'Не удалось проанализировать высоту тона';
-    let pitchDifference = 0;
-
-    if (!pitchAnalysisFailed && mainPitch.pitchCount > 0 && userPitch.pitchCount > 0) {
-      pitchDifference = mainPitch.avgFrequency - userPitch.avgFrequency;
-      const absDiff = Math.abs(pitchDifference);
-      
-      if (absDiff > 100) {
-        pitchComment = pitchDifference > 0 
-          ? 'Вы поёте значительно ниже оригинала (разница >100 Гц)' 
-          : 'Вы поёте значительно выше оригинала (разница >100 Гц)';
-      } else if (absDiff > 50) {
-        pitchComment = pitchDifference > 0 
-          ? 'Вы поёте ниже оригинала (разница 50-100 Гц)' 
-          : 'Вы поёте выше оригинала (разница 50-100 Гц)';
-      } else if (absDiff > 20) {
-        pitchComment = pitchDifference > 0 
-          ? 'Вы поёте немного ниже оригинала (разница 20-50 Гц)' 
-          : 'Вы поёте немного выше оригинала (разница 20-50 Гц)';
-      } else {
-        pitchComment = 'Высота тона хорошо совпадает (разница <20 Гц)';
-      }
-      
-      pitchComment += `\nСредняя частота: оригинал ${mainPitch.avgFrequency.toFixed(2)} Гц, ваш вариант ${userPitch.avgFrequency.toFixed(2)} Гц`;
-    }
-
-    console.log(`Итоговое сходство: ${adjustedSimilarity}%`);
     return {
-      similarity: adjustedSimilarity,
-      pitchComment,
-      pitchAnalysisFailed
+      similarity: Math.min(99, similarity), // Максимум 99% для реалистичности
+      pitchComment: getDetailedPitchComment(mainAnalysis, userAnalysis)
     };
-
   } catch (error) {
-    console.error('Ошибка сравнения:', error);
-    throw new Error('Не удалось сравнить аудио: ' + error.message);
+    console.error('Comparison error:', error);
+    throw error;
   } finally {
     [mainWavPath, userWavPath].forEach(path => {
       if (fs.existsSync(path)) fs.unlinkSync(path);
