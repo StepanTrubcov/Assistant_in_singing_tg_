@@ -1,20 +1,19 @@
 import { Telegraf } from "telegraf";
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import fs from 'fs';
 import { execSync } from 'child_process';
 
-// const token = '7523112354:AAF84dgow0u0klV8BFRhvJRwiQHFKtTCsbk'
+const token = '7523112354:AAF84dgow0u0klV8BFRhvJRwiQHFKtTCsbk'
 
-const token = process.env.TOKEN;
+// const token = process.env.TOKEN;
 
 const bot = new Telegraf(token)
-// const MAIN_USER_ID = 5102803347
-//779619123
-// const users = [7779459253];
+const MAIN_USER_ID = 779619123
+const users = [5102803347];
+//7779459253
 
-const MAIN_USER_ID = parseInt(process.env.MAIN_USER_ID);
-const users = JSON.parse(process.env.USERS || '[]');
+// const MAIN_USER_ID = parseInt(process.env.MAIN_USER_ID);
+// const users = JSON.parse(process.env.USERS || '[]');
 
 let mainAudioFileId = null;
 let userAudioFileId = null;
@@ -90,22 +89,22 @@ async function getPitchAnalysis(wavPath) {
     // Alternative method using aubio for pitch detection
     const command = `aubiopitch -i ${wavPath} 2>&1`;
     const output = execSync(command, { maxBuffer: 1024 * 1024 * 10 }).toString();
-    
+
     // Parse the output to get pitch values
     const pitchValues = output.split('\n')
       .map(line => line.trim())
       .filter(line => line && !line.startsWith('#'))
       .map(line => parseFloat(line.split(/\s+/)[1]))
       .filter(val => !isNaN(val));
-    
+
     if (pitchValues.length === 0) {
       throw new Error('No pitch values detected');
     }
-    
+
     // Calculate average pitch
     const sum = pitchValues.reduce((a, b) => a + b, 0);
     const avgFrequency = sum / pitchValues.length;
-    
+
     return {
       avgFrequency,
       pitchCount: pitchValues.length
@@ -122,7 +121,7 @@ async function getBasicFrequencyAnalysis(wavPath) {
     const command = `ffmpeg -i ${wavPath} -af "astats=metadata=1:reset=1" -f null - 2>&1 | grep "Overall.Frequency"`;
     const output = execSync(command).toString();
     const freqMatch = output.match(/Overall\.Frequency:\s*(\d+\.?\d*)/);
-    
+
     if (freqMatch) {
       return {
         avgFrequency: parseFloat(freqMatch[1]),
@@ -199,7 +198,7 @@ async function compareAudioFiles(ctx, mainAudioFileId, userAudioFileId) {
     let mainPitch = { avgFrequency: 0, pitchCount: 0 };
     let userPitch = { avgFrequency: 0, pitchCount: 0 };
     let pitchAnalysisFailed = false;
-    
+
     try {
       [mainPitch, userPitch] = await Promise.all([
         getPitchAnalysis(mainWavPath),
@@ -235,7 +234,7 @@ async function compareAudioFiles(ctx, mainAudioFileId, userAudioFileId) {
     if (!pitchAnalysisFailed && mainPitch.pitchCount > 0 && userPitch.pitchCount > 0) {
       comparisons.frequency = {
         diff: Math.abs(mainPitch.avgFrequency - userPitch.avgFrequency),
-        maxDiff: 100,
+        maxDiff: 200,
         weight: 0.5 // значительно увеличено с 0.2
       };
     } else {
@@ -258,7 +257,7 @@ async function compareAudioFiles(ctx, mainAudioFileId, userAudioFileId) {
     }
 
     const finalSimilarity = totalSimilarity / totalWeight;
-    const adjustedSimilarity = Math.max(0, Math.min(100, finalSimilarity.toFixed(2)));
+    const adjustedSimilarity = Math.max(0, Math.min(99, finalSimilarity.toFixed(2)));
 
     // Формируем комментарий о высоте тона
     let pitchComment = 'Не удалось проанализировать высоту тона';
@@ -267,23 +266,23 @@ async function compareAudioFiles(ctx, mainAudioFileId, userAudioFileId) {
     if (!pitchAnalysisFailed && mainPitch.pitchCount > 0 && userPitch.pitchCount > 0) {
       pitchDifference = mainPitch.avgFrequency - userPitch.avgFrequency;
       const absDiff = Math.abs(pitchDifference);
-      
+
       if (absDiff > 100) {
-        pitchComment = pitchDifference > 0 
-          ? 'Вы поёте значительно ниже оригинала (разница >100 Гц)' 
+        pitchComment = pitchDifference > 0
+          ? 'Вы поёте значительно ниже оригинала (разница >100 Гц)'
           : 'Вы поёте значительно выше оригинала (разница >100 Гц)';
       } else if (absDiff > 50) {
-        pitchComment = pitchDifference > 0 
-          ? 'Вы поёте ниже оригинала (разница 50-100 Гц)' 
+        pitchComment = pitchDifference > 0
+          ? 'Вы поёте ниже оригинала (разница 50-100 Гц)'
           : 'Вы поёте выше оригинала (разница 50-100 Гц)';
       } else if (absDiff > 20) {
-        pitchComment = pitchDifference > 0 
-          ? 'Вы поёте немного ниже оригинала (разница 20-50 Гц)' 
+        pitchComment = pitchDifference > 0
+          ? 'Вы поёте немного ниже оригинала (разница 20-50 Гц)'
           : 'Вы поёте немного выше оригинала (разница 20-50 Гц)';
       } else {
         pitchComment = 'Высота тона хорошо совпадает (разница <20 Гц)';
       }
-      
+
       pitchComment += `\nСредняя частота: оригинал ${mainPitch.avgFrequency.toFixed(2)} Гц, ваш вариант ${userPitch.avgFrequency.toFixed(2)} Гц`;
     }
 
@@ -368,10 +367,10 @@ bot.on("callback_query", async (ctx) => {
         const comparisonResult = await compareAudioFiles(ctx, mainAudioFileId, userAudioFileId);
 
         similarityPercentage = comparisonResult.similarity
-        
+
         let message = `Результат сравнения: ${comparisonResult.similarity}%\n`;
         message += `Комментарий по высоте тона: ${comparisonResult.pitchComment}`;
-        
+
         await ctx.reply(message, {
           reply_markup: {
             inline_keyboard: [
