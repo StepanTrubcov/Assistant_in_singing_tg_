@@ -1,0 +1,8 @@
+node_modules/
+*.wav
+*.mp3
+*.ogg
+*.mp4
+.env
+.git
+*.log
