@@ -4,7 +4,7 @@ import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import fs from 'fs';
 import { execSync } from 'child_process';
 
-// const token = '7786183810:AAF5GXNyUBCge7oWvPdTJ_mluhiMs_EI1GE'
+// const token = '7523112354:AAF84dgow0u0klV8BFRhvJRwiQHFKtTCsbk'
 const token = process.env.TOKEN;
 const bot = new Telegraf(token)
 const MAIN_USER_ID = parseInt(process.env.MAIN_USER_ID);

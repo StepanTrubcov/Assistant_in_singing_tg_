@@ -4,4 +4,11 @@ services:
     env: node
     plan: free
     buildCommand: npm install
-    startCommand: node index.js
+    startCommand: npm start
+    envVars:
+      - key: TOKEN
+        fromGroup: telegram-bot-env
+      - key: MAIN_USER_ID
+        fromGroup: telegram-bot-env
+      - key: USERS
+        fromGroup: telegram-bot-env
