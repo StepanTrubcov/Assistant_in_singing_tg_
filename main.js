@@ -5,8 +5,14 @@ import fs from 'fs';
 import { execSync } from 'child_process';
 
 // const token = '7523112354:AAF84dgow0u0klV8BFRhvJRwiQHFKtTCsbk'
+
 const token = process.env.TOKEN;
+
 const bot = new Telegraf(token)
+// const MAIN_USER_ID = 5102803347
+// //779619123
+// const users = [7779459253];
+
 const MAIN_USER_ID = parseInt(process.env.MAIN_USER_ID);
 const users = JSON.parse(process.env.USERS || '[]');
 
@@ -17,7 +23,7 @@ let nameMainAudioFileId = null;
 
 let similarityPercentage = null;
 
-ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH || 'ffmpeg');
 
 async function downloadAndConvertVoice(ctx, fileId, outputPath) {
   const tempPath = `temp_${Date.now()}.ogg`;
@@ -189,7 +195,7 @@ async function compareAudioFiles(ctx, mainAudioFileId, userAudioFileId) {
 
     console.log('Основные характеристики:', { mainFeatures, userFeatures });
 
-    // Анализ высоты тона
+    // Анализ высоты тона (с обработкой возможных ошибок)
     let mainPitch = { avgFrequency: 0, pitchCount: 0 };
     let userPitch = { avgFrequency: 0, pitchCount: 0 };
     let pitchAnalysisFailed = false;
@@ -205,41 +211,39 @@ async function compareAudioFiles(ctx, mainAudioFileId, userAudioFileId) {
       pitchAnalysisFailed = true;
     }
 
-    // Сравнение характеристик с новыми параметрами
+    // Сравнение характеристик
     const comparisons = {
+      // Уменьшаем вес длительности и громкости, увеличиваем вес частоты
       duration: {
         diff: Math.abs(mainFeatures.duration - userFeatures.duration),
-        maxDiff: 5, // Максимально допустимая разница в секундах
-        weight: 0.2 // Уменьшено с 0.3
+        maxDiff: 5,
+        weight: 0.2 // уменьшено с 0.3
       },
       loudness: {
         diff: Math.abs(mainFeatures.loudness - userFeatures.loudness),
-        maxDiff: 20, // Максимально допустимая разница в LUFS
-        weight: 0.2 // Уменьшено с 0.3
+        maxDiff: 20,
+        weight: 0.2 // уменьшено с 0.3
       },
       peak: {
         diff: Math.abs(mainFeatures.peak - userFeatures.peak),
-        maxDiff: 10, // Максимально допустимая разница в dBFS
-        weight: 0.2 // Оставлено без изменения
+        maxDiff: 10,
+        weight: 0.1 // уменьшено с 0.2
       }
     };
 
-    // Если анализ частоты успешен, добавляем его с увеличенным весом
+    // Добавляем сравнение частот с большим весом
     if (!pitchAnalysisFailed && mainPitch.pitchCount > 0 && userPitch.pitchCount > 0) {
       comparisons.frequency = {
         diff: Math.abs(mainPitch.avgFrequency - userPitch.avgFrequency),
-        maxDiff: 100, // Теперь 0% сходства при разнице 100 Гц или более
-        weight: 0.4 // Увеличено с 0.2 до 0.4 (40%)
+        maxDiff: 100,
+        weight: 0.5 // значительно увеличено с 0.2
       };
     } else {
-      // Если анализ частоты не удался, перераспределяем веса
-      const remainingWeight = 0.4;
-      const totalOtherWeights = 0.2 + 0.2 + 0.2; // duration + loudness + peak
-      const scaleFactor = 1 + remainingWeight / totalOtherWeights;
-      
-      comparisons.duration.weight *= scaleFactor;
-      comparisons.loudness.weight *= scaleFactor;
-      comparisons.peak.weight *= scaleFactor;
+      // Если анализ частоты не удался, распределяем его вес между другими параметрами
+      const extraWeight = 0.5 / Object.keys(comparisons).length;
+      for (const key in comparisons) {
+        comparisons[key].weight += extraWeight;
+      }
     }
 
     // Расчет сходства
@@ -250,7 +254,7 @@ async function compareAudioFiles(ctx, mainAudioFileId, userAudioFileId) {
       const similarity = 100 * (1 - Math.min(diff / maxDiff, 1));
       totalSimilarity += similarity * weight;
       totalWeight += weight;
-      console.log(`${key}: разница ${diff.toFixed(2)}, сходство ${similarity.toFixed(2)}%, вес ${weight}`);
+      console.log(`${key}: разница ${diff.toFixed(2)}, сходство ${similarity.toFixed(2)}%`);
     }
 
     const finalSimilarity = totalSimilarity / totalWeight;
@@ -264,10 +268,10 @@ async function compareAudioFiles(ctx, mainAudioFileId, userAudioFileId) {
       pitchDifference = mainPitch.avgFrequency - userPitch.avgFrequency;
       const absDiff = Math.abs(pitchDifference);
       
-      if (absDiff >= 100) {
+      if (absDiff > 100) {
         pitchComment = pitchDifference > 0 
-          ? 'Вы поёте значительно ниже оригинала (разница ≥100 Гц)' 
-          : 'Вы поёте значительно выше оригинала (разница ≥100 Гц)';
+          ? 'Вы поёте значительно ниже оригинала (разница >100 Гц)' 
+          : 'Вы поёте значительно выше оригинала (разница >100 Гц)';
       } else if (absDiff > 50) {
         pitchComment = pitchDifference > 0 
           ? 'Вы поёте ниже оригинала (разница 50-100 Гц)' 
@@ -277,11 +281,10 @@ async function compareAudioFiles(ctx, mainAudioFileId, userAudioFileId) {
           ? 'Вы поёте немного ниже оригинала (разница 20-50 Гц)' 
           : 'Вы поёте немного выше оригинала (разница 20-50 Гц)';
       } else {
-        pitchComment = 'Высота тона отлично совпадает (разница <20 Гц)';
+        pitchComment = 'Высота тона хорошо совпадает (разница <20 Гц)';
       }
       
       pitchComment += `\nСредняя частота: оригинал ${mainPitch.avgFrequency.toFixed(2)} Гц, ваш вариант ${userPitch.avgFrequency.toFixed(2)} Гц`;
-      pitchComment += `\nВклад в общее сходство: ${(100 * (1 - Math.min(absDiff / 100, 1)) * 0.4).toFixed(1)}% (из 40%)`;
     }
 
     console.log(`Итоговое сходство: ${adjustedSimilarity}%`);

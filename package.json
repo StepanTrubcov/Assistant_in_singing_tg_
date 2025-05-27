@@ -1,16 +1,19 @@
 {
   "name": "bot",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "main.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node main.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "fluent-ffmpeg": "^2.1.2",
+    "telegraf": "^4.12.2",  
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@google-cloud/speech": "^7.0.1",
     "@google-cloud/storage": "^7.16.0",
