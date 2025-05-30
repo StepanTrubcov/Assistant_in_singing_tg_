@@ -1,19 +1,13 @@
 import { Telegraf } from "telegraf";
-import ffmpeg from 'fluent-ffmpeg';
-import fs from 'fs';
-import { execSync } from 'child_process';
+import axios from 'axios';
+import FormData from "form-data";
 
 const token = '7523112354:AAF84dgow0u0klV8BFRhvJRwiQHFKtTCsbk'
 
-// const token = process.env.TOKEN;
-
 const bot = new Telegraf(token)
-const MAIN_USER_ID = 779619123
-const users = [5102803347];
-//7779459253
-
-// const MAIN_USER_ID = parseInt(process.env.MAIN_USER_ID);
-// const users = JSON.parse(process.env.USERS || '[]');
+const MAIN_USER_ID = 5102803347
+const users = [7779459253];
+//7779459253 
 
 let mainAudioFileId = null;
 let userAudioFileId = null;
@@ -22,288 +16,51 @@ let nameMainAudioFileId = null;
 
 let similarityPercentage = null;
 
-ffmpeg.setFfmpegPath('ffmpeg');
+async function getFileUrl(ctx, fileId) {
+  const file = await ctx.telegram.getFile(fileId);
+  return `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+}
 
-async function downloadAndConvertVoice(ctx, fileId, outputPath) {
-  const tempPath = `temp_${Date.now()}.ogg`;
-
+async function compareAudioFilesOnServer(ctx, mainFileId, userFileId) {
   try {
-    // Скачивание файла
-    const fileLink = await ctx.telegram.getFileLink(fileId);
-    const response = await fetch(fileLink);
-    const buffer = Buffer.from(await response.arrayBuffer());
-    fs.writeFileSync(tempPath, buffer);
-    console.log(`Временный файл создан: ${tempPath} (${buffer.length} байт)`);
+    const mainFileUrl = await getFileUrl(ctx, mainFileId);
+    const userFileUrl = await getFileUrl(ctx, userFileId);
 
-    // Конвертация в WAV
-    await new Promise((resolve, reject) => {
-      const command = ffmpeg(tempPath)
-        .audioCodec('pcm_s16le')
-        .audioFrequency(44100)
-        .audioChannels(1)
-        .format('wav')
-        .on('start', (cmd) => console.log('Запущена команда:', cmd))
-        .on('progress', (progress) => {
-          let progressInfo = '';
-          if (progress.percent !== undefined) {
-            progressInfo += `${progress.percent.toFixed(2)}% `;
-          }
-          if (progress.timemark) {
-            progressInfo += `[${progress.timemark}] `;
-          }
-          if (progress.frames) {
-            progressInfo += `${progress.frames} frames`;
-          }
-          console.log('Прогресс:', progressInfo || 'Данные о прогрессе недоступны');
-        })
-        .on('error', (err) => {
-          console.error('Ошибка конвертации:', err);
-          deleteTempFile(tempPath);
-          reject(err);
-        })
-        .on('end', () => {
-          console.log('Конвертация успешно завершена');
-          deleteTempFile(tempPath);
-          resolve();
-        });
+    const [mainRes, userRes] = await Promise.all([
+      axios.get(mainFileUrl, { responseType: 'arraybuffer' }),
+      axios.get(userFileUrl, { responseType: 'arraybuffer' }),
+    ]);
 
-      // Добавим обработчик для получения метаданных
-      command.on('codecData', (data) => {
-        console.log(`Длительность входного файла: ${data.duration || 'неизвестна'}`);
-      });
-
-      command.save(outputPath);
+    const formData = new FormData();
+    formData.append('main_audio', mainRes.data, {
+      filename: 'main.ogg',
+      contentType: 'audio/ogg',
+    });
+    formData.append('user_audio', userRes.data, {
+      filename: 'user.ogg',
+      contentType: 'audio/ogg',
     });
 
-    // Проверяем размер выходного файла
-    const stats = fs.statSync(outputPath);
-    console.log(`Размер WAV файла: ${stats.size} байт`);
-  } catch (err) {
-    deleteTempFile(tempPath);
-    throw err;
-  }
-}
+    const response = await axios.post('http://localhost:8000/compare/', formData, {
+      headers: formData.getHeaders(),
+    });
 
-async function getPitchAnalysis(wavPath) {
-  try {
-    // Alternative method using aubio for pitch detection
-    const command = `aubiopitch -i ${wavPath} 2>&1`;
-    const output = execSync(command, { maxBuffer: 1024 * 1024 * 10 }).toString();
-
-    // Parse the output to get pitch values
-    const pitchValues = output.split('\n')
-      .map(line => line.trim())
-      .filter(line => line && !line.startsWith('#'))
-      .map(line => parseFloat(line.split(/\s+/)[1]))
-      .filter(val => !isNaN(val));
-
-    if (pitchValues.length === 0) {
-      throw new Error('No pitch values detected');
-    }
-
-    // Calculate average pitch
-    const sum = pitchValues.reduce((a, b) => a + b, 0);
-    const avgFrequency = sum / pitchValues.length;
-
-    return {
-      avgFrequency,
-      pitchCount: pitchValues.length
-    };
-  } catch (error) {
-    console.error('Pitch analysis error:', error);
-    // Fallback to basic FFT analysis if aubio fails
-    return getBasicFrequencyAnalysis(wavPath);
-  }
-}
-
-async function getBasicFrequencyAnalysis(wavPath) {
-  try {
-    const command = `ffmpeg -i ${wavPath} -af "astats=metadata=1:reset=1" -f null - 2>&1 | grep "Overall.Frequency"`;
-    const output = execSync(command).toString();
-    const freqMatch = output.match(/Overall\.Frequency:\s*(\d+\.?\d*)/);
-
-    if (freqMatch) {
-      return {
-        avgFrequency: parseFloat(freqMatch[1]),
-        pitchCount: 1
-      };
-    }
-    throw new Error('No frequency data found');
-  } catch (error) {
-    console.error('Basic frequency analysis failed:', error);
-    throw new Error('Could not analyze pitch: ' + error.message);
-  }
-}
-
-function deleteTempFile(path) {
-  try {
-    if (fs.existsSync(path)) {
-      fs.unlinkSync(path);
-      console.log(`Временный файл удалён: ${path}`);
-    }
-  } catch (err) {
-    console.error(`Ошибка при удалении ${path}:`, err);
-  }
-}
-
-async function getAudioFeatures(wavPath) {
-  try {
-    // 1. Получаем длительность аудио
-    const durationCommand = `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ${wavPath}`;
-    const duration = parseFloat(execSync(durationCommand).toString());
-
-    // 2. Упрощенный анализ громкости и пикового уровня
-    const analysisCommand = `ffmpeg -i ${wavPath} -af "ebur128=peak=true" -f null - 2>&1 | grep -E 'I:|Peak:'`;
-    const analysisOutput = execSync(analysisCommand, { maxBuffer: 1024 * 1024 * 5 }).toString();
-
-    // Извлекаем ключевые параметры
-    const loudnessMatch = analysisOutput.match(/I:\s*(-?\d+\.\d+)\s*LUFS/);
-    const peakMatch = analysisOutput.match(/Peak:\s*(-?\d+\.\d+)\s*dBFS/);
-
-    if (!loudnessMatch || !peakMatch) {
-      throw new Error('Не удалось извлечь параметры громкости');
+    if (response.data.status !== "success") {
+      throw new Error(response.data.message || "Неизвестная ошибка сервера");
     }
 
     return {
-      duration,
-      loudness: parseFloat(loudnessMatch[1]),
-      peak: parseFloat(peakMatch[1])
-    };
-  } catch (error) {
-    console.error('Ошибка анализа аудио:', error);
-    throw new Error('Не удалось проанализировать аудио файл');
-  }
-}
-
-async function compareAudioFiles(ctx, mainAudioFileId, userAudioFileId) {
-  const mainWavPath = 'main.wav';
-  const userWavPath = 'user.wav';
-
-  try {
-    // Конвертация
-    await Promise.all([
-      downloadAndConvertVoice(ctx, mainAudioFileId, mainWavPath),
-      downloadAndConvertVoice(ctx, userAudioFileId, userWavPath)
-    ]);
-
-    // Анализ базовых характеристик
-    const [mainFeatures, userFeatures] = await Promise.all([
-      getAudioFeatures(mainWavPath),
-      getAudioFeatures(userWavPath)
-    ]);
-
-    console.log('Основные характеристики:', { mainFeatures, userFeatures });
-
-    // Анализ высоты тона (с обработкой возможных ошибок)
-    let mainPitch = { avgFrequency: 0, pitchCount: 0 };
-    let userPitch = { avgFrequency: 0, pitchCount: 0 };
-    let pitchAnalysisFailed = false;
-
-    try {
-      [mainPitch, userPitch] = await Promise.all([
-        getPitchAnalysis(mainWavPath),
-        getPitchAnalysis(userWavPath)
-      ]);
-      console.log('Анализ высоты тона:', { mainPitch, userPitch });
-    } catch (pitchError) {
-      console.error('Ошибка анализа высоты тона:', pitchError);
-      pitchAnalysisFailed = true;
-    }
-
-    // Сравнение характеристик
-    const comparisons = {
-      // Уменьшаем вес длительности и громкости, увеличиваем вес частоты
-      duration: {
-        diff: Math.abs(mainFeatures.duration - userFeatures.duration),
-        maxDiff: 5,
-        weight: 0.2 // уменьшено с 0.3
-      },
-      loudness: {
-        diff: Math.abs(mainFeatures.loudness - userFeatures.loudness),
-        maxDiff: 20,
-        weight: 0.2 // уменьшено с 0.3
-      },
-      peak: {
-        diff: Math.abs(mainFeatures.peak - userFeatures.peak),
-        maxDiff: 10,
-        weight: 0.1 // уменьшено с 0.2
-      }
-    };
-
-    // Добавляем сравнение частот с большим весом
-    if (!pitchAnalysisFailed && mainPitch.pitchCount > 0 && userPitch.pitchCount > 0) {
-      comparisons.frequency = {
-        diff: Math.abs(mainPitch.avgFrequency - userPitch.avgFrequency),
-        maxDiff: 200,
-        weight: 0.5 // значительно увеличено с 0.2
-      };
-    } else {
-      // Если анализ частоты не удался, распределяем его вес между другими параметрами
-      const extraWeight = 0.5 / Object.keys(comparisons).length;
-      for (const key in comparisons) {
-        comparisons[key].weight += extraWeight;
-      }
-    }
-
-    // Расчет сходства
-    let totalSimilarity = 0;
-    let totalWeight = 0;
-
-    for (const [key, { diff, maxDiff, weight }] of Object.entries(comparisons)) {
-      const similarity = 100 * (1 - Math.min(diff / maxDiff, 1));
-      totalSimilarity += similarity * weight;
-      totalWeight += weight;
-      console.log(`${key}: разница ${diff.toFixed(2)}, сходство ${similarity.toFixed(2)}%`);
-    }
-
-    const finalSimilarity = totalSimilarity / totalWeight;
-    const adjustedSimilarity = Math.max(0, Math.min(99, finalSimilarity.toFixed(2)));
-
-    // Формируем комментарий о высоте тона
-    let pitchComment = 'Не удалось проанализировать высоту тона';
-    let pitchDifference = 0;
-
-    if (!pitchAnalysisFailed && mainPitch.pitchCount > 0 && userPitch.pitchCount > 0) {
-      pitchDifference = mainPitch.avgFrequency - userPitch.avgFrequency;
-      const absDiff = Math.abs(pitchDifference);
-
-      if (absDiff > 100) {
-        pitchComment = pitchDifference > 0
-          ? 'Вы поёте значительно ниже оригинала (разница >100 Гц)'
-          : 'Вы поёте значительно выше оригинала (разница >100 Гц)';
-      } else if (absDiff > 50) {
-        pitchComment = pitchDifference > 0
-          ? 'Вы поёте ниже оригинала (разница 50-100 Гц)'
-          : 'Вы поёте выше оригинала (разница 50-100 Гц)';
-      } else if (absDiff > 20) {
-        pitchComment = pitchDifference > 0
-          ? 'Вы поёте немного ниже оригинала (разница 20-50 Гц)'
-          : 'Вы поёте немного выше оригинала (разница 20-50 Гц)';
-      } else {
-        pitchComment = 'Высота тона хорошо совпадает (разница <20 Гц)';
-      }
-
-      pitchComment += `\nСредняя частота: оригинал ${mainPitch.avgFrequency.toFixed(2)} Гц, ваш вариант ${userPitch.avgFrequency.toFixed(2)} Гц`;
-    }
-
-    console.log(`Итоговое сходство: ${adjustedSimilarity}%`);
-    return {
-      similarity: adjustedSimilarity,
-      pitchComment,
-      pitchAnalysisFailed
+      similarity: response.data.similarity_percentage
     };
 
   } catch (error) {
     console.error('Ошибка сравнения:', error);
-    throw new Error('Не удалось сравнить аудио: ' + error.message);
-  } finally {
-    [mainWavPath, userWavPath].forEach(path => {
-      if (fs.existsSync(path)) fs.unlinkSync(path);
-    });
+    throw new Error(`Не удалось сравнить аудио: ${error.message}`);
   }
 }
 
-//.............................................
+
+//......................................................
 
 bot.command('start', async (ctx) => {
   const userId = ctx.from.id;
@@ -358,31 +115,23 @@ bot.on("callback_query", async (ctx) => {
 
   try {
     if (buttonData === 'sendingUsers') {
-      if (!mainAudioFileId || !userAudioFileId) {
-        throw new Error('Не найдены оба аудиофайла для сравнения');
-      }
-
       await ctx.answerCbQuery('Идёт анализ аудио...');
-      try {
-        const comparisonResult = await compareAudioFiles(ctx, mainAudioFileId, userAudioFileId);
 
-        similarityPercentage = comparisonResult.similarity
+      const comparisonResult = await compareAudioFilesOnServer(ctx, mainAudioFileId, userAudioFileId);
 
-        let message = `Результат сравнения: ${comparisonResult.similarity}%\n`;
-        message += `Комментарий по высоте тона: ${comparisonResult.pitchComment}`;
 
-        await ctx.reply(message, {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "Отправить Васе?", callback_data: "sendToVasya" }],
-              [{ text: "Переписать", callback_data: "rewrite" }]
-            ],
-          },
-        });
-      } catch (error) {
-        console.error('Ошибка сравнения:', error);
-        throw new Error('Не удалось проанализировать аудио. Убедитесь, что оба сообщения содержат запись голоса.');
-      }
+      similarityPercentage = comparisonResult.similarity;
+
+      let message = `Результат сравнения: ${comparisonResult.similarity}%\n`;
+
+      await ctx.reply(message, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "Отправить Васе?", callback_data: "sendToVasya" }],
+            [{ text: "Переписать", callback_data: "rewrite" }]
+          ],
+        },
+      });
     } else if (buttonData === 'sending') {
       await ctx.answerCbQuery('Отправка аудио пользователям...');
 
