@@ -14,12 +14,10 @@ const bot = new Telegraf(token);
 
 // Настройки сервера
 const SERVER_URLS = [
-  'http://192.168.0.13:5001',
-  'http://localhost:5001'
+  'https://bek-bot.onrender.com'
 ];
 const MAIN_USER_ID = 5102803347;
 const users = [7779459253];
-const MAX_RETRIES = 3;
 
 // Создаем необходимые директории
 if (!existsSync('temp')) mkdirSync('temp');
@@ -79,7 +77,7 @@ async function findAvailableServer() {
   for (const url of SERVER_URLS) {
     try {
       const response = await axios.get(`${url}/health`, { 
-        timeout: 100000 
+        timeout: 60000 
       });
       if (response.data?.status === 'success') {
         console.log(`Using server: ${url}`);
@@ -139,7 +137,7 @@ async function compareAudioFiles(ctx, refFileId, userFileId) {
 
         await axios.post(`${activeServerUrl}/upload_reference`, refFormData, {
           headers: refFormData.getHeaders(),
-          timeout: 100000
+          timeout: 60000
         });
 
         // Сравниваем
