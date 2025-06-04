@@ -79,7 +79,7 @@ async function findAvailableServer() {
   for (const url of SERVER_URLS) {
     try {
       const response = await axios.get(`${url}/health`, { 
-        timeout: 20000 
+        timeout: 100000 
       });
       if (response.data?.status === 'success') {
         console.log(`Using server: ${url}`);
@@ -139,7 +139,7 @@ async function compareAudioFiles(ctx, refFileId, userFileId) {
 
         await axios.post(`${activeServerUrl}/upload_reference`, refFormData, {
           headers: refFormData.getHeaders(),
-          timeout: 60000
+          timeout: 100000
         });
 
         // Сравниваем
