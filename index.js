@@ -79,7 +79,7 @@ async function findAvailableServer() {
   for (const url of SERVER_URLS) {
     try {
       const response = await axios.get(`${url}/health`, { 
-        timeout: 5000 
+        timeout: 20000 
       });
       if (response.data?.status === 'success') {
         console.log(`Using server: ${url}`);
