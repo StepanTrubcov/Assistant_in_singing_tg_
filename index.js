@@ -6,6 +6,11 @@ import { promisify } from 'util';
 import { pipeline } from 'stream';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
+import express from 'express';
+
+// Инициализация Express сервера
+const app = express();
+const PORT = process.env.PORT || 3000;
 
 // Конфигурация
 ffmpeg.setFfmpegPath(ffmpegPath.path);
@@ -516,25 +521,35 @@ bot.on("callback_query", async (ctx) => {
   }
 });
 
-// Запуск бота с улучшенной обработкой ошибок
-bot.launch()
-  .then(() => {
-    console.log('✅ Бот успешно запущен');
-    
-    // Пытаемся найти доступный сервер при старте
-    findAvailableServer()
-      .then(url => {
-        activeServerUrl = url;
-        if (!activeServerUrl) {
-          console.log('ℹ️ Сервер сравнения недоступен, будет использовано локальное сравнение');
-        }
-      })
-      .catch(err => console.error('Server discovery error:', err));
-  })
-  .catch(err => {
-    console.error('❌ Ошибка запуска бота:', err);
-    process.exit(1);
-  });
+// Простой HTTP-сервер для Render
+app.get('/', (req, res) => {
+  res.send('Telegram bot is running');
+});
+
+// Запуск сервера и бота
+app.listen(PORT, () => {
+  console.log(`HTTP server running on port ${PORT}`);
+  
+  // Запуск бота
+  bot.launch()
+    .then(() => {
+      console.log('✅ Бот успешно запущен');
+      
+      // Пытаемся найти доступный сервер при старте
+      findAvailableServer()
+        .then(url => {
+          activeServerUrl = url;
+          if (!activeServerUrl) {
+            console.log('ℹ️ Сервер сравнения недоступен, будет использовано локальное сравнение');
+          }
+        })
+        .catch(err => console.error('Server discovery error:', err));
+    })
+    .catch(err => {
+      console.error('❌ Ошибка запуска бота:', err);
+      process.exit(1);
+    });
+});
 
 // Обработка завершения работы
 process.once('SIGINT', () => {
