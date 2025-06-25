@@ -24,8 +24,8 @@ const bot = new Telegraf(token);
 
 // Настройки сервера
 const SERVER_URLS = ['https://bek-bot.onrender.com'];
-const MAIN_USER_ID = 5102803347;
-const users = [7779459253];
+const MAIN_USER_ID = 779619123;
+const users = [5102803347];
 
 // Создаем необходимые директории
 const tempDir = join(__dirname, 'temp');
