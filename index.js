@@ -14,6 +14,9 @@ import { dirname, join } from 'path';
 const app = express();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// Определение порта (добавлено исправление)
+const PORT = process.env.PORT || 3000;
+
 // Конфигурация
 ffmpeg.setFfmpegPath(ffmpegStatic);
 const token = process.env.BOT_TOKEN || '7523112354:AAF84dgow0u0klV8BFRhvJRwiQHFKtTCsbk';
@@ -107,7 +110,6 @@ async function downloadAndConvert(fileId, filePath, ctx) {
 
 // Проверка доступности серверов с кешированием
 async function findAvailableServer() {
-  // Если уже есть активный URL, проверяем его первым
   if (activeServerUrl) {
     try {
       const response = await axios.get(`${activeServerUrl}/health`, { 
@@ -121,7 +123,6 @@ async function findAvailableServer() {
     }
   }
 
-  // Проверяем все серверы по очереди
   for (const url of SERVER_URLS) {
     try {
       const response = await axios.get(`${url}/health`, { 
@@ -141,7 +142,6 @@ async function findAvailableServer() {
 // Улучшенное локальное сравнение аудио
 async function localAudioComparison(refPath, userPath) {
   try {
-    // Получаем метаданные для обоих файлов
     const getMetadata = (filePath) => {
       return new Promise((resolve, reject) => {
         ffmpeg.ffprobe(filePath, (err, metadata) => {
@@ -156,7 +156,6 @@ async function localAudioComparison(refPath, userPath) {
       getMetadata(userPath)
     ]);
 
-    // Проверяем основные параметры
     const refDuration = refMeta.format.duration;
     const userDuration = userMeta.format.duration;
     const refSize = refMeta.format.size;
@@ -164,19 +163,15 @@ async function localAudioComparison(refPath, userPath) {
     
     if (!refDuration || !userDuration) return 0;
     
-    // Сравниваем несколько параметров
     const durationDiff = Math.abs(refDuration - userDuration);
     const sizeDiff = Math.abs(refSize - userSize);
     
-    // Весовые коэффициенты для разных параметров
     const durationWeight = 0.6;
     const sizeWeight = 0.4;
     
-    // Нормализованные различия (0-1)
     const durationSimilarity = 1 - Math.min(1, durationDiff / Math.max(refDuration, userDuration));
     const sizeSimilarity = 1 - Math.min(1, sizeDiff / Math.max(refSize, userSize));
     
-    // Общая оценка сходства
     const totalSimilarity = (durationSimilarity * durationWeight + sizeSimilarity * sizeWeight) * 100;
     
     return Math.max(0, Math.min(100, totalSimilarity));
@@ -186,7 +181,7 @@ async function localAudioComparison(refPath, userPath) {
   }
 }
 
-// Основная функция сравнения аудио с улучшенной обработкой ошибок
+// Основная функция сравнения аудио
 async function compareAudioFiles(ctx, refFileId, userFileId) {
   let refPath = `temp/ref_${Date.now()}.wav`;
   let userPath = `temp/user_${Date.now()}.wav`;
@@ -195,14 +190,12 @@ async function compareAudioFiles(ctx, refFileId, userFileId) {
   try {
     console.log('Starting audio comparison process');
     
-    // Скачиваем и конвертируем аудио параллельно
     await Promise.all([
       downloadAndConvert(refFileId, refPath, ctx),
       downloadAndConvert(userFileId, userPath, ctx)
     ]);
     console.log('Both audio files downloaded and converted');
 
-    // Пытаемся использовать сервер
     if (!activeServerUrl) {
       console.log('Looking for available server');
       activeServerUrl = await findAvailableServer();
@@ -211,7 +204,6 @@ async function compareAudioFiles(ctx, refFileId, userFileId) {
     if (activeServerUrl) {
       console.log(`Attempting server comparison with ${activeServerUrl}`);
       try {
-        // Загружаем референс
         const refFormData = new FormData();
         refFormData.append('audio', createReadStream(refPath));
         refFormData.append('teacher_id', MAIN_USER_ID.toString());
@@ -219,10 +211,9 @@ async function compareAudioFiles(ctx, refFileId, userFileId) {
         console.log('Uploading reference audio');
         await axios.post(`${activeServerUrl}/upload_reference`, refFormData, {
           headers: refFormData.getHeaders(),
-          timeout: 300000 // 5 минут
+          timeout: 300000
         });
 
-        // Сравниваем
         const compareFormData = new FormData();
         compareFormData.append('audio', createReadStream(userPath));
         compareFormData.append('teacher_id', MAIN_USER_ID.toString());
@@ -230,7 +221,7 @@ async function compareAudioFiles(ctx, refFileId, userFileId) {
         console.log('Starting comparison on server');
         const response = await axios.post(`${activeServerUrl}/compare_audio`, compareFormData, {
           headers: compareFormData.getHeaders(),
-          timeout: 300000 // 5 минут
+          timeout: 300000
         });
 
         if (response.data?.status === 'success') {
@@ -243,10 +234,9 @@ async function compareAudioFiles(ctx, refFileId, userFileId) {
         }
       } catch (serverError) {
         console.error('Server comparison failed:', serverError.message);
-        activeServerUrl = null; // Помечаем сервер как недоступный
+        activeServerUrl = null;
       }
       finally {
-        // Очистка временных файлов с задержкой
         setTimeout(() => {
           [refPath, userPath].forEach(path => {
             if (existsSync(path)) {
@@ -258,11 +248,10 @@ async function compareAudioFiles(ctx, refFileId, userFileId) {
               }
             }
           });
-        }, 10000); // 10 секунд задержки
+        }, 10000);
       }
     }
 
-    // Если сервер не доступен, используем локальное сравнение
     if (result.status !== 'success') {
       console.log('Falling back to local comparison');
       const localSimilarity = await localAudioComparison(refPath, userPath);
@@ -279,7 +268,6 @@ async function compareAudioFiles(ctx, refFileId, userFileId) {
     console.error('Comparison process error:', error);
     throw new Error('Ошибка при сравнении аудио: ' + error.message);
   } finally {
-    // Очистка временных файлов
     [refPath, userPath].forEach(path => {
       if (existsSync(path)) {
         console.log(`Removing temp file: ${path}`);
@@ -289,7 +277,7 @@ async function compareAudioFiles(ctx, refFileId, userFileId) {
   }
 }
 
-// Команда /start с улучшенным приветствием
+// Команда /start
 bot.command('start', async (ctx) => {
   const userId = ctx.from.id;
 
@@ -309,7 +297,7 @@ bot.command('start', async (ctx) => {
   }
 });
 
-// Обработка голосовых сообщений с улучшенной логикой
+// Обработка голосовых сообщений
 bot.on('voice', async (ctx) => {
   const userId = ctx.from.id;
   const voice = ctx.message.voice;
@@ -347,7 +335,7 @@ bot.on('voice', async (ctx) => {
   }
 });
 
-// Обработка текстовых сообщений с улучшенной валидацией
+// Обработка текстовых сообщений
 bot.on('text', async (ctx) => {
   const userId = ctx.from.id;
   const userMessage = ctx.message.text.trim();
@@ -376,7 +364,7 @@ bot.on('text', async (ctx) => {
   }
 });
 
-// Улучшенная обработка callback-кнопок с прогрессом
+// Обработка callback-кнопок
 bot.on("callback_query", async (ctx) => {
   const buttonData = ctx.callbackQuery.data;
   const firstName = ctx.from.first_name;
@@ -391,7 +379,6 @@ bot.on("callback_query", async (ctx) => {
         return;
       }
 
-      // Отправляем сообщение о начале обработки
       const progressMessage = await ctx.replyWithHTML(
         '🔍 <b>Анализируем ваше аудио...</b>\n\n' +
         'Это может занять несколько минут...\n' +
@@ -399,7 +386,6 @@ bot.on("callback_query", async (ctx) => {
       );
 
       try {
-        // Обновляем прогресс каждые 15 секунд
         const startTime = Date.now();
         const progressInterval = setInterval(async () => {
           try {
@@ -422,7 +408,6 @@ bot.on("callback_query", async (ctx) => {
         clearInterval(progressInterval);
         similarityPercentage = comparisonResult.similarity;
         
-        // Формируем сообщение с результатом
         let message = `🎵 <b>Результат сравнения:</b> ${comparisonResult.similarity.toFixed(2)}%\n`;
         if (comparisonResult.method === 'local') {
           message += "<i>(использовано упрощенное сравнение)</i>\n\n";
@@ -440,7 +425,6 @@ bot.on("callback_query", async (ctx) => {
           message += "🔄 Попробуйте ещё раз, обратите внимание на ритм и высоту тона";
         }
 
-        // Удаляем сообщение о прогрессе и отправляем результат
         await ctx.telegram.deleteMessage(ctx.chat.id, progressMessage.message_id);
         await ctx.replyWithHTML(message, {
           reply_markup: {
@@ -513,6 +497,7 @@ bot.on("callback_query", async (ctx) => {
   }
 });
 
+// Запуск сервера
 app.listen(PORT, () => {
   console.log(`HTTP server running on port ${PORT}`);
   
