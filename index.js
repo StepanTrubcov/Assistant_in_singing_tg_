@@ -5,7 +5,8 @@ import { createWriteStream, createReadStream, unlinkSync, existsSync, mkdirSync 
 import { promisify } from 'util';
 import { pipeline } from 'stream';
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegPath from '@ffmpeg-installer/ffmpeg';
+import ffmpegPath from 'ffmpeg-static';
+ffmpeg.setFfmpegPath(ffmpegPath);
 import express from 'express';
 
 // Инициализация Express сервера
