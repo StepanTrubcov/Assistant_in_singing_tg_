@@ -1,6 +1,10 @@
 services:
   - type: web
-    name: your-service-name
-    runtime: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port 8000
+    name: telegram-bot  # Можно изменить на свое название
+    env: node
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: BOT_TOKEN
+        value: 7523112354:AAF84dgow0u0klV8BFRhvJRwiQHFKtTCsbk  # Замените на реальный токен
+    healthCheckPath: /health
