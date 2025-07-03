@@ -19,7 +19,7 @@ const PORT = process.env.PORT || 3000;
 
 // Конфигурация
 ffmpeg.setFfmpegPath(ffmpegStatic);
-const token = process.env.BOT_TOKEN || '7523112354:AAF84dgow0u0klV8BFRhvJRwiQHFKtTCsbk';
+const token = '7832405095:AAH-wtOOLUNJJ7Z5N8lDzBtnmmQpn-lHd0I';
 const bot = new Telegraf(token);
 
 // Настройки сервера
