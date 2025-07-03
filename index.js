@@ -211,7 +211,7 @@ async function compareAudioFiles(ctx, refFileId, userFileId) {
         console.log('Uploading reference audio');
         await axios.post(`${activeServerUrl}/upload_reference`, refFormData, {
           headers: refFormData.getHeaders(),
-          timeout: 300000
+          timeout: 500000
         });
 
         const compareFormData = new FormData();
@@ -221,7 +221,7 @@ async function compareAudioFiles(ctx, refFileId, userFileId) {
         console.log('Starting comparison on server');
         const response = await axios.post(`${activeServerUrl}/compare_audio`, compareFormData, {
           headers: compareFormData.getHeaders(),
-          timeout: 300000
+          timeout: 500000
         });
 
         if (response.data?.status === 'success') {
