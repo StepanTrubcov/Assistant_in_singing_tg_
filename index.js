@@ -15,7 +15,7 @@ const app = express();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Определение порта (добавлено исправление)
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 
 // Конфигурация
 ffmpeg.setFfmpegPath(ffmpegStatic);
@@ -23,7 +23,7 @@ const token = '7832405095:AAH-wtOOLUNJJ7Z5N8lDzBtnmmQpn-lHd0I';
 const bot = new Telegraf(token);
 
 // Настройки сервера
-const SERVER_URLS = ['http://127.0.0.1:10000'];
+const SERVER_URLS = ['https://bek-bot.onrender.com'];
 const MAIN_USER_ID = 5102803347;
 const users = [7779459253];
 
