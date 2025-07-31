@@ -529,6 +529,29 @@ bot.on("callback_query", async (ctx) => {
   }
 });
 
+
+app.get('/ping', (req, res) => {
+  console.log('Received ping at', new Date().toISOString());
+  res.json({ 
+    status: 'alive', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime() 
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'ok',
+    message: 'Bot is healthy',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/wakeup', (req, res) => {
+  console.log('Wakeup call received');
+  res.send('Bot is awake!');
+});
+
 // Запуск сервера
 app.listen(PORT, () => {
   console.log(`HTTP server running on port ${PORT}`);
