@@ -15,7 +15,7 @@ const app = express();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Определение порта (добавлено исправление)
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3055;
 
 // Конфигурация
 ffmpeg.setFfmpegPath(ffmpegStatic);
@@ -24,7 +24,7 @@ const bot = new Telegraf(token);
 
 // Настройки сервера
 const SERVER_URLS = ['http://77.233.222.46:8000']; 
-const MAIN_USER_ID = 779619123;
+const MAIN_USER_ID = 779619123; 
 const users = [8114868398,5102803347];
 
 // Создаем необходимые директории
