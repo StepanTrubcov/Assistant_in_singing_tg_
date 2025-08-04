@@ -415,7 +415,7 @@ bot.on('photo', async (ctx) => {
         'Отправить аудио участникам?',
         {
           reply_markup: {
-            inline_keyboard: [[{ text: "📤 Отправить", callback_data: "sending" }]],
+            inline_keyboard: [[{ text: "📤 Отправить", callback_data: "sending" }],[{ text: "✏️ Добавить название", callback_data: "setName" }],],
           },
         }
       );
