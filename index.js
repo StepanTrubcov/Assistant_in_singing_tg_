@@ -14,18 +14,18 @@ import { dirname, join } from 'path';
 const app = express();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Определение порта (добавлено исправление)
-const PORT = process.env.PORT || 3055;
+// Определение порта
+const PORT = process.env.PORT || 3000;
 
 // Конфигурация
 ffmpeg.setFfmpegPath(ffmpegStatic);
-const token = '7832405095:AAH-wtOOLUNJJ7Z5N8lDzBtnmmQpn-lHd0I';
+const token = '8363940753:AAFbh68b2Ggzx3M2pzXetcVLp2sQFiiiCuw';
 const bot = new Telegraf(token);
 
 // Настройки сервера
-const SERVER_URLS = ['http://77.233.222.46:8000']; 
-const MAIN_USER_ID = 779619123; 
-const users = [8114868398,5102803347];
+const SERVER_URLS = ['http://77.233.222.46:8000'];
+const MAIN_USER_ID = 5102803347;
+const users = [7779459253];
 
 // Создаем необходимые директории
 const tempDir = join(__dirname, 'temp');
@@ -38,7 +38,8 @@ if (!existsSync(audioCacheDir)) mkdirSync(audioCacheDir);
 let mainAudioFileId = null;
 let userAudioFileId = null;
 let nameMainAudioFileId = null;
-let similarityPercentage = null;
+let mainImageFileId = null; // New variable to store image file ID
+let comparisonResult = null;
 let activeServerUrl = null;
 
 const pipelineAsync = promisify(pipeline);
@@ -74,14 +75,14 @@ async function convertToWav(inputPath, outputPath) {
 // Загрузка и конвертация аудио
 async function downloadAndConvert(fileId, filePath, ctx) {
   const tempPath = join(tempDir, `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}.ogg`);
-  
+
   try {
     const fileLink = await ctx.telegram.getFileLink(fileId);
     const response = await axios({
       method: 'GET',
       url: fileLink,
       responseType: 'stream',
-      timeout: 60000
+      timeout: 100000
     });
 
     await pipelineAsync(response.data, createWriteStream(tempPath));
@@ -112,8 +113,8 @@ async function downloadAndConvert(fileId, filePath, ctx) {
 async function findAvailableServer() {
   if (activeServerUrl) {
     try {
-      const response = await axios.get(`${activeServerUrl}/health`, { 
-        timeout: 300000 
+      const response = await axios.get(`${activeServerUrl}/health`, {
+        timeout: 1000000
       });
       if (response.data?.status === 'success') {
         return activeServerUrl;
@@ -125,8 +126,8 @@ async function findAvailableServer() {
 
   for (const url of SERVER_URLS) {
     try {
-      const response = await axios.get(`${url}/health`, { 
-        timeout: 300000 
+      const response = await axios.get(`${url}/health`, {
+        timeout: 1000000
       });
       if (response.data?.status === 'success') {
         console.log(`Using server: ${url}`);
@@ -160,24 +161,66 @@ async function localAudioComparison(refPath, userPath) {
     const userDuration = userMeta.format.duration;
     const refSize = refMeta.format.size;
     const userSize = userMeta.format.size;
-    
-    if (!refDuration || !userDuration) return 0;
-    
+
+    if (!refDuration || !userDuration) return {
+      status: 'success',
+      method: 'local',
+      data: {
+        overall_similarity_percent: 0,
+        text_similarity_percent: 0,
+        pitch_similarity_percent: 0,
+        temporal_similarity_percent: 0,
+        spectral_similarity_percent: 0,
+        text_warning: 'Не удалось извлечь метаданные',
+        details: { duration_diff: 0, pitch_diff: 0 },
+        warnings: ['Ошибка анализа аудио'],
+        suggestions: ['Попробуйте отправить другое аудио']
+      }
+    };
+
     const durationDiff = Math.abs(refDuration - userDuration);
     const sizeDiff = Math.abs(refSize - userSize);
-    
+
     const durationWeight = 0.6;
     const sizeWeight = 0.4;
-    
+
     const durationSimilarity = 1 - Math.min(1, durationDiff / Math.max(refDuration, userDuration));
     const sizeSimilarity = 1 - Math.min(1, sizeDiff / Math.max(refSize, userSize));
-    
+
     const totalSimilarity = (durationSimilarity * durationWeight + sizeSimilarity * sizeWeight) * 100;
-    
-    return Math.max(0, Math.min(100, totalSimilarity));
+
+    return {
+      status: 'success',
+      method: 'local',
+      data: {
+        overall_similarity_percent: Math.max(0, Math.min(100, totalSimilarity)),
+        text_similarity_percent: 0,
+        pitch_similarity_percent: 0,
+        temporal_similarity_percent: Math.max(0, Math.min(100, durationSimilarity * 100)),
+        spectral_similarity_percent: 0,
+        text_warning: 'Локальное сравнение (ограниченный анализ)',
+        details: { duration_diff: durationDiff, pitch_diff: 0 },
+        warnings: ['Использовано упрощённое сравнение из-за недоступности сервера'],
+        suggestions: ['Попробуйте позже для полного анализа']
+      }
+    };
   } catch (error) {
     console.error('Local comparison error:', error);
-    return 0;
+    return {
+      status: 'success',
+      method: 'local',
+      data: {
+        overall_similarity_percent: 0,
+        text_similarity_percent: 0,
+        pitch_similarity_percent: 0,
+        temporal_similarity_percent: 0,
+        spectral_similarity_percent: 0,
+        text_warning: 'Ошибка локального анализа',
+        details: { duration_diff: 0, pitch_diff: 0 },
+        warnings: ['Не удалось выполнить локальное сравнение'],
+        suggestions: ['Попробуйте отправить другое аудио']
+      }
+    };
   }
 }
 
@@ -185,11 +228,10 @@ async function localAudioComparison(refPath, userPath) {
 async function compareAudioFiles(ctx, refFileId, userFileId) {
   let refPath = `temp/ref_${Date.now()}.wav`;
   let userPath = `temp/user_${Date.now()}.wav`;
-  let result = { status: 'error', similarity: 0 };
-  
+
   try {
     console.log('Starting audio comparison process');
-    
+
     await Promise.all([
       downloadAndConvert(refFileId, refPath, ctx),
       downloadAndConvert(userFileId, userPath, ctx)
@@ -211,7 +253,7 @@ async function compareAudioFiles(ctx, refFileId, userFileId) {
         console.log('Uploading reference audio');
         await axios.post(`${activeServerUrl}/upload_reference`, refFormData, {
           headers: refFormData.getHeaders(),
-          timeout: 500000
+          timeout: 1000000
         });
 
         const compareFormData = new FormData();
@@ -221,59 +263,42 @@ async function compareAudioFiles(ctx, refFileId, userFileId) {
         console.log('Starting comparison on server');
         const response = await axios.post(`${activeServerUrl}/compare_audio`, compareFormData, {
           headers: compareFormData.getHeaders(),
-          timeout: 500000
+          timeout: 1000000
         });
 
         if (response.data?.status === 'success') {
           console.log('Server comparison successful');
-          result = {
+          console.log('Ответ сервера:', JSON.stringify(response.data, null, 2));
+          return {
             status: 'success',
-            similarity: response.data.data.similarity_percent,
-            method: 'server'
+            method: 'server',
+            data: response.data.data
           };
         }
       } catch (serverError) {
         console.error('Server comparison failed:', serverError.message);
         activeServerUrl = null;
       }
-      finally {
-        setTimeout(() => {
-          [refPath, userPath].forEach(path => {
-            if (existsSync(path)) {
-              console.log(`Removing temp file: ${path}`);
-              try {
-                unlinkSync(path);
-              } catch (e) {
-                console.error(`Error removing ${path}:`, e);
-              }
-            }
-          });
-        }, 10000);
-      }
     }
 
-    if (result.status !== 'success') {
-      console.log('Falling back to local comparison');
-      const localSimilarity = await localAudioComparison(refPath, userPath);
-      result = {
-        status: 'success',
-        similarity: localSimilarity,
-        method: 'local'
-      };
-      console.log(`Local comparison result: ${localSimilarity.toFixed(2)}%`);
-    }
-
-    return result;
+    console.log('Falling back to local comparison');
+    return await localAudioComparison(refPath, userPath);
   } catch (error) {
     console.error('Comparison process error:', error);
     throw new Error('Ошибка при сравнении аудио: ' + error.message);
   } finally {
-    [refPath, userPath].forEach(path => {
-      if (existsSync(path)) {
-        console.log(`Removing temp file: ${path}`);
-        unlinkSync(path);
-      }
-    });
+    setTimeout(() => {
+      [refPath, userPath].forEach(path => {
+        if (existsSync(path)) {
+          console.log(`Removing temp file: ${path}`);
+          try {
+            unlinkSync(path);
+          } catch (e) {
+            console.error(`Error removing ${path}:`, e);
+          }
+        }
+      });
+    }, 10000);
   }
 }
 
@@ -283,7 +308,8 @@ bot.command('start', async (ctx) => {
 
   try {
     if (userId === MAIN_USER_ID) {
-      await ctx.reply('🎤 Привет, Василий! Ты главный пользователь этого бота.\n\nЗапиши голосовое сообщение, и оно будет отправлено другим участникам для повторения.');
+      await ctx.reply('🎤 Привет, Василий! Ты главный пользователь этого бота.\n\nЗапиши голосовое сообщение, и оно будет отправлено другим участникам для повторения.\n' +
+                      'Ты также можешь отправить название и изображение с текстом песнопения.');
     } else {
       await ctx.replyWithHTML(
         `👋 Привет, ${ctx.from.first_name}! Этот бот создан для <b>Ржевского хора</b>.\n\n` +
@@ -303,27 +329,35 @@ bot.command('help', (ctx) => {
     'Этот бот предназначен для сравнения голосовых сообщений.\n\n' +
     '<b>Основные команды:</b>\n' +
     '/start - Начать работу с ботом\n' +
-    '/help - Показать эту справку\n\n' +
+    '/help - Показать эту справку\n' +
+    '/info - Показать информацию о сравнении\n\n' +
     '<b>Как использовать:</b>\n' +
     '1. Василий отправляет голосовое сообщение с песнопением в бота\n' +
     '2. Бот присылает это голосовое всем остальным пользователям\n' +
     '3. Ваша задача: когда бот пришлёт голосовое от Василия, прослушать его и отправить ответное голосовое сообщение боту\n' +
-    '4. Бот сравнивает голосовые сообщения и показывает результат\n' +
+    '4. Бот сравнивает голосовые сообщения и показывает подробные результаты\n' +
     '5. Если результат слишком низкий, вы можете перезаписать голосовое\n' +
-    '6. Когда результат будет удовлетворительным, бот отправит голосовое Василию\n\n' +
+    '6. Когда результат будет удовлетворительным, бот отправит голосовое и результаты Василию\n\n' +
     '⚠️ Если бот не отвечает, попробуйте перезапустить его командой /start'
   );
 });
 
 bot.command('info', (ctx) => {
   ctx.replyWithHTML(
-    '<b>Как бот сравнивает голосовые сообщения:</b>\n'+
-    '🎯 90% – 100% — голосовые сообщения очень похожи или идентичны (отличное попадание в мелодию и ритм)\n'+
-    '👍 70% – 90% — голосовые сообщения хорошо схожи (есть небольшие отклонения, но в целом правильно)\n'+
-    '🤔 50% – 70% — голосовые не сильно совпадают (есть заметные различия в тоне или темпе)\n'+
-    '🎵 30% – 50% — голосовые не совпадают\n'+
-    '❌ 0% – 25% — вы поёте не то песнопение (нужно переписать или уточнить текст)\n\n'+
-    'Совет: Если результат ниже 70%, попробуйте записать голосовое заново, чтобы добиться лучшего совпадения!'
+    '<b>Как бот сравнивает голосовые сообщения:</b>\n' +
+    'Бот анализирует несколько параметров:\n' +
+    '🎵 <b>Общее сходство</b>: Как сильно ваше исполнение совпадает с эталоном\n' +
+    '📜 <b>Текст</b>: Насколько точно вы воспроизвели слова\n' +
+    '🎶 <b>Высота тона</b>: Соответствие мелодии эталону\n' +
+    '⏱️ <b>Темп</b>: Совпадение ритма и скорости исполнения\n' +
+    '🔊 <b>Спектральные характеристики</b>: Сходство тембра и качества звука\n\n' +
+    '<b>Оценки:</b>\n' +
+    '🎯 90%–100% — Отличное совпадение\n' +
+    '👍 70%–90% — Хорошее совпадение\n' +
+    '🤔 50%–70% — Заметные различия\n' +
+    '🎵 30%–50% — Значительные отличия\n' +
+    '❌ 0%–30% — Возможно, другое песнопение\n\n' +
+    'Совет: Если результат ниже 70%, попробуйте перезаписать, обращая внимание на текст, мелодию и темп!'
   );
 });
 
@@ -334,14 +368,15 @@ bot.on('voice', async (ctx) => {
 
   try {
     console.log(`Voice message received from ${userId}, duration: ${voice.duration} sec`);
-    
+
     if (userId === MAIN_USER_ID) {
       mainAudioFileId = voice.file_id;
       await ctx.reply('🎤 Голосовое сообщение получено!', {
         reply_markup: {
           inline_keyboard: [
-            [{ text: "📤 Отправить без названия", callback_data: "sending" }],
-            [{ text: "✏️ Добавить название", callback_data: "setName" }]
+            [{ text: "📤 Отправить без названия и изображения", callback_data: "sending" }],
+            [{ text: "✏️ Добавить название", callback_data: "setName" }],
+            [{ text: "🖼️ Добавить изображение", callback_data: "setImage" }]
           ],
         },
       });
@@ -365,6 +400,34 @@ bot.on('voice', async (ctx) => {
   }
 });
 
+// Обработка изображений
+bot.on('photo', async (ctx) => {
+  const userId = ctx.from.id;
+  const photos = ctx.message.photo;
+
+  try {
+    if (userId === MAIN_USER_ID && mainAudioFileId) {
+      // Get the highest resolution image
+      const photo = photos[photos.length - 1];
+      mainImageFileId = photo.file_id;
+      await ctx.replyWithHTML(
+        `🖼️ <b>Изображение сохранено</b>\n\n` +
+        'Отправить аудио участникам?',
+        {
+          reply_markup: {
+            inline_keyboard: [[{ text: "📤 Отправить", callback_data: "sending" }]],
+          },
+        }
+      );
+    } else {
+      await ctx.reply('⚠️ Изображения принимаются только от Василия после отправки голосового сообщения');
+    }
+  } catch (error) {
+    console.error('Photo message error:', error);
+    await ctx.reply('⚠️ Произошла ошибка при обработке изображения');
+  }
+});
+
 // Обработка текстовых сообщений
 bot.on('text', async (ctx) => {
   const userId = ctx.from.id;
@@ -376,14 +439,17 @@ bot.on('text', async (ctx) => {
         await ctx.reply('❌ Слишком длинное название (максимум 100 символов)');
         return;
       }
-      
+
       nameMainAudioFileId = userMessage;
       await ctx.replyWithHTML(
         `📝 <b>Название сохранено:</b> "${userMessage}"\n\n` +
-        'Отправить аудио участникам?',
+        'Добавить изображение или отправить аудио участникам?',
         {
           reply_markup: {
-            inline_keyboard: [[{ text: "📤 Отправить", callback_data: "sending" }]],
+            inline_keyboard: [
+              [{ text: "🖼️ Добавить изображение", callback_data: "setImage" }],
+              [{ text: "📤 Отправить", callback_data: "sending" }]
+            ],
           },
         }
       );
@@ -434,27 +500,43 @@ bot.on("callback_query", async (ctx) => {
           }
         }, 15000);
 
-        const comparisonResult = await compareAudioFiles(ctx, mainAudioFileId, userAudioFileId);
+        comparisonResult = await compareAudioFiles(ctx, mainAudioFileId, userAudioFileId);
         clearInterval(progressInterval);
-        similarityPercentage = comparisonResult.similarity;
-        
-        let message = `🎵 <b>Результат сравнения:</b> ${comparisonResult.similarity.toFixed(2)}%\n`;
-        if (comparisonResult.method === 'local') {
-          message += "<i>(использовано упрощенное сравнение)</i>\n\n";
-        } else {
-          message += "\n";
+
+        const { data, method } = comparisonResult;
+        const {
+          overall_similarity_percent,
+          text_similarity_percent,
+          pitch_similarity_percent,
+          temporal_similarity_percent,
+          spectral_similarity_percent,
+          text_warning,
+          details,
+          warnings,
+          suggestions
+        } = data;
+
+        let message = `🎵 <b>Результат сравнения:</b>\n\n`;
+        message += `📊 <b>Общее сходство:</b> ${overall_similarity_percent.toFixed(2)}%\n`;
+        message += `📜 Текст: ${text_similarity_percent.toFixed(2)}%${text_warning ? ` (${text_warning})` : ''}\n`;
+        message += `🎶 Высота тона: ${pitch_similarity_percent.toFixed(2)}%\n`;
+        message += `⏱️ Темп: ${temporal_similarity_percent.toFixed(2)}%\n`;
+        message += `🔊 Спектральные характеристики: ${spectral_similarity_percent.toFixed(2)}%\n`;
+
+        if (method === 'local') {
+          message += `\n<i>(Использовано упрощённое локальное сравнение)</i>\n`;
         }
 
-        if (comparisonResult.similarity > 80) {
-          message += "🎉 Идеальное совпадение!!! Василий будет в восторге!";
-        } else if (comparisonResult.similarity > 70) {
-          message += "👍 Хорошее совпадение! Василий будет доволен!";
-        } else if (comparisonResult.similarity > 50) {
-          message += "💪 Неплохо, но нужно больше практики!";
-        } else if (comparisonResult.similarity > 30) {
-          message += "😔 Думаю Василию не понравиться такой результат!!";
+        if (overall_similarity_percent > 80) {
+          message += `\n🎉 Идеальное совпадение! Василий будет в восторге!`;
+        } else if (overall_similarity_percent > 70) {
+          message += `\n👍 Хорошее совпадение! Василий будет доволен!`;
+        } else if (overall_similarity_percent > 50) {
+          message += `\n💪 Неплохо, но нужно больше практики!`;
+        } else if (overall_similarity_percent > 30) {
+          message += `\n😔 Думаю, Василию не понравится такой результат!`;
         } else {
-          message += "😡 Вы поёте не то песнопение";
+          message += `\n😡 Возможно, вы поёте не то песнопение`;
         }
 
         await ctx.telegram.deleteMessage(ctx.chat.id, progressMessage.message_id);
@@ -483,18 +565,23 @@ bot.on("callback_query", async (ctx) => {
           try {
             await ctx.telegram.sendChatAction(uid, 'typing');
             await ctx.telegram.sendMessage(
-              uid, 
+              uid,
               '🎤 Василий отправил новое голосовое сообщение для повторения!'
             );
-            
+
             if (nameMainAudioFileId) {
               await ctx.telegram.sendMessage(
-                uid, 
+                uid,
                 `📝 <b>Название:</b> ${nameMainAudioFileId}`,
                 { parse_mode: 'HTML' }
               );
             }
-            
+
+            if (mainImageFileId) {
+              await ctx.telegram.sendPhoto(uid, mainImageFileId, {
+              });
+            }
+
             await ctx.telegram.sendVoice(uid, mainAudioFileId);
             successCount++;
           } catch (e) {
@@ -504,23 +591,52 @@ bot.on("callback_query", async (ctx) => {
       }
 
       nameMainAudioFileId = null;
+      mainImageFileId = null; // Reset image file ID after sending
       await ctx.replyWithHTML(
         `✅ Аудио отправлено ${successCount} из ${totalUsers} участников!` +
         (successCount < totalUsers ? '\n\nНекоторые пользователи не получили сообщение.' : '')
       );
     } else if (buttonData === 'sendToVasya') {
-      await ctx.telegram.sendMessage(
-        MAIN_USER_ID,
-        `📤 ${firstName} отправил свой вариант!\n` +
-        `🔍 Сходство: ${similarityPercentage.toFixed(2)}%`
-      );
+      if (!comparisonResult) {
+        await ctx.reply('❌ Нет результатов сравнения для отправки');
+        return;
+      }
+
+      const { data } = comparisonResult;
+      const {
+        overall_similarity_percent,
+        text_similarity_percent,
+        pitch_similarity_percent,
+        temporal_similarity_percent,
+        spectral_similarity_percent,
+        text_warning,
+        details,
+        warnings,
+        suggestions
+      } = data;
+
+      let message = `📤 ${firstName} отправил свой вариант!\n\n`;
+      message += `📊 <b>Общее сходство:</b> ${overall_similarity_percent.toFixed(2)}%\n`;
+      message += `📜 Текст:${text_similarity_percent.toFixed(2)}%${text_warning ? ` (${text_warning})` : ''}\n`;
+      message += `🎶 Высота тона: ${pitch_similarity_percent.toFixed(2)}%\n`;
+      message += `⏱️ Темп: ${temporal_similarity_percent.toFixed(2)}%\n`;
+      message += `🔊 Спектральные характеристики: ${spectral_similarity_percent.toFixed(2)}%\n`;
+
+      if (comparisonResult.method === 'local') {
+        message += `\n<i>(Использовано упрощённое локальное сравнение)</i>`;
+      }
+
+      await ctx.telegram.sendMessage(MAIN_USER_ID, message, { parse_mode: 'HTML' });
       await ctx.telegram.sendVoice(MAIN_USER_ID, userAudioFileId);
       await ctx.reply('✅ Результат отправлен Василию!');
     } else if (buttonData === 'rewrite') {
       await ctx.reply('🔄 Запишите голосовое сообщение ещё раз и отправьте его мне.');
       userAudioFileId = null;
+      comparisonResult = null;
     } else if (buttonData === 'setName') {
       await ctx.reply('✏️ Напишите название для этого голосового сообщения:');
+    } else if (buttonData === 'setImage') {
+      await ctx.reply('🖼️ Отправьте изображение с текстом песнопения:');
     }
   } catch (error) {
     console.error('Callback error:', error);
@@ -529,18 +645,17 @@ bot.on("callback_query", async (ctx) => {
   }
 });
 
-
 app.get('/ping', (req, res) => {
   console.log('Received ping at', new Date().toISOString());
-  res.json({ 
-    status: 'alive', 
+  res.json({
+    status: 'alive',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime() 
+    uptime: process.uptime()
   });
 });
 
 app.get('/health', (req, res) => {
-  res.status(200).json({ 
+  res.status(200).json({
     status: 'ok',
     message: 'Bot is healthy',
     timestamp: new Date().toISOString()
@@ -555,7 +670,7 @@ app.get('/wakeup', (req, res) => {
 // Запуск сервера
 app.listen(PORT, () => {
   console.log(`HTTP server running on port ${PORT}`);
-  
+
   if (process.env.RENDER) {
     const webhookUrl = `https://${process.env.RENDER_EXTERNAL_HOSTNAME}/bot${token}`;
     bot.telegram.setWebhook(webhookUrl)
