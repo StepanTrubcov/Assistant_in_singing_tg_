@@ -24,8 +24,8 @@ const bot = new Telegraf(token);
 
 // Настройки сервера
 const SERVER_URLS = ['http://77.233.222.46:8000'];
-const MAIN_USER_ID = 5102803347;
-const users = [7779459253];
+const MAIN_USER_ID = 779619123;
+const users = [8114868398,5102803347];
 
 // Создаем необходимые директории
 const tempDir = join(__dirname, 'temp');
